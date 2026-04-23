@@ -5,71 +5,19 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Finch Survival Simulator</title>
     <style>
-        /* This section controls the sizing */
-        body { 
-            font-family: 'Comic Sans MS', sans-serif; /* Dyslexia-friendly font choice */
-            background-color: #f0f4f8; 
-            display: flex; 
-            justify-content: center; 
-            padding: 10px;
-            margin: 0;
-        }
-        #chat-container { 
-            width: 95vw; /* Fills most of the screen width */
-            max-width: 900px; /* But doesn't get too stretched on huge monitors */
-            background: white; 
-            border-radius: 20px; 
-            box-shadow: 0 10px 25px rgba(0,0,0,0.2); 
-            display: flex; 
-            flex-direction: column; 
-            height: 95vh; 
-            overflow: hidden;
-        }
-        #status-bar { 
-            background: #2c3e50; 
-            color: white; 
-            padding: 20px; 
-            font-size: 1.5em; /* Large status text */
-            display: flex; 
-            justify-content: space-between;
-            border-bottom: 5px solid #1a73e8;
-        }
-        #chat-box { 
-            flex: 1; 
-            overflow-y: auto; 
-            padding: 25px; 
-            display: flex; 
-            flex-direction: column; 
-            gap: 20px; 
-            font-size: 1.3em; /* Larger chat text for readability */
-        }
+        body { font-family: 'Comic Sans MS', sans-serif; background-color: #f0f4f8; display: flex; justify-content: center; padding: 10px; margin: 0; transition: background-color 0.5s; }
+        #chat-container { width: 95vw; max-width: 900px; background: white; border-radius: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.2); display: flex; flex-direction: column; height: 95vh; overflow: hidden; }
+        #status-bar { background: #2c3e50; color: white; padding: 20px; font-size: 1.5em; display: flex; justify-content: space-between; border-bottom: 5px solid #1a73e8; }
+        #chat-box { flex: 1; overflow-y: auto; padding: 25px; display: flex; flex-direction: column; gap: 20px; font-size: 1.4em; }
         .msg { padding: 20px; border-radius: 20px; max-width: 85%; line-height: 1.4; border: 1px solid #ddd; }
         .bot { background: #e8f0fe; align-self: flex-start; color: #000; }
         .user { background: #34a853; color: white; align-self: flex-end; font-weight: bold; }
-        
-        #controls { 
-            padding: 30px; 
-            background: #f9f9f9;
-            border-top: 2px solid #eee; 
-            display: flex; 
-            flex-wrap: wrap; 
-            gap: 15px; 
-            justify-content: center; 
-        }
-        /* Extra Large Buttons for easier clicking */
-        button { 
-            padding: 20px 30px; 
-            font-size: 1.2em; 
-            border: none; 
-            border-radius: 50px; 
-            background: #1a73e8; 
-            color: white; 
-            cursor: pointer; 
-            font-weight: bold; 
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-        }
+        #timer-display { font-size: 3em; font-weight: bold; text-align: center; color: #d93025; margin: 10px 0; display: none; }
+        #controls { padding: 30px; background: #f9f9f9; border-top: 2px solid #eee; display: flex; flex-wrap: wrap; gap: 15px; justify-content: center; }
+        button { padding: 20px 35px; font-size: 1.3em; border: none; border-radius: 50px; background: #1a73e8; color: white; cursor: pointer; font-weight: bold; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
         button:hover { background: #1557b0; transform: translateY(-2px); }
-        .highlight { color: #d93025; font-weight: bold; text-decoration: underline; }
+        .feeding-active { background-color: #fff9c4 !important; } /* Yellow background when eating */
+        .time-up { background-color: #ffcdd2 !important; } /* Red background when done */
     </style>
 </head>
 <body>
@@ -81,11 +29,16 @@
     </div>
     
     <div id="chat-box">
-        <div class="msg bot">👋 Hello, Scientists! <br><br>Look at your desk. <b>Which beak tool (binder clip) do you have today?</b></div>
+        <div class="msg bot">👋 Welcome, Scientists! <br><br><b>Which beak tool (binder clip) do you have today?</b></div>
     </div>
 
-    <div id="controls" id="btn-group">
-        </div>
+    <div id="timer-display">20</div>
+
+    <div id="controls">
+        <button onclick="setBeak('Small Beak')">Small Beak</button>
+        <button onclick="setBeak('Medium Beak')">Medium Beak</button>
+        <button onclick="setBeak('Large Beak')">Large Beak</button>
+    </div>
 </div>
 
 <script>
@@ -93,6 +46,22 @@
     let generation = 1;
     const chatBox = document.getElementById('chat-box');
     const controls = document.getElementById('controls');
+    const timerDisplay = document.getElementById('timer-display');
+
+    // Create Audio Context for the Chime
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    function playSound(freq, type, duration) {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+        gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + duration);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + duration);
+    }
 
     function addMsg(text, type) {
         const div = document.createElement('div');
@@ -115,54 +84,76 @@
     }
 
     function startGen1() {
-        addMsg("<b>1976 - The Wet Season:</b> It's raining! There are seeds everywhere. <br><br><b>ACTION:</b> Use your tool to eat for 20 seconds. <br>1. Count your seeds. <br>2. Write them in <b>Table 1</b>.", 'bot');
+        addMsg("<b>1976 - The Wet Season:</b> Seeds are everywhere! <br><br>Press the button when you are ready to eat.", 'bot');
+        controls.innerHTML = `<button style="background:#2ecc71" onclick="startTimer()">START FEEDING (20s)</button>`;
+    }
+
+    function startTimer() {
+        controls.innerHTML = ""; // Hide buttons while feeding
+        timerDisplay.style.display = "block";
+        document.body.className = "feeding-active";
+        let timeLeft = 20;
         
+        const countdown = setInterval(() => {
+            timeLeft--;
+            timerDisplay.innerText = timeLeft;
+            
+            if (timeLeft <= 3 && timeLeft > 0) {
+                playSound(440, 'sine', 0.2); // Warning beeps
+            }
+            
+            if (timeLeft <= 0) {
+                clearInterval(countdown);
+                playSound(880, 'square', 0.5); // Final Chime
+                document.body.className = "time-up";
+                timerDisplay.innerText = "TIME'S UP!";
+                finishRound();
+            }
+        }, 1000);
+    }
+
+    function finishRound() {
+        addMsg("<b>STOP!</b> Count your seeds and write them in your worksheet.", 'bot');
         controls.innerHTML = `
-            <button style="background:#2ecc71" onclick="handleResult('MOST')">I got the MOST! 🏆</button>
-            <button style="background:#f1c40f; color:black;" onclick="handleResult('SOME')">I got SOME.</button>
-            <button style="background:#e74c3c" onclick="handleResult('LEAST')">I got the LEAST. ⚠️</button>
+            <button style="background:#2ecc71" onclick="handleResult('MOST')">MOST Seeds 🏆</button>
+            <button style="background:#f1c40f; color:black;" onclick="handleResult('SOME')">SOME Seeds</button>
+            <button style="background:#e74c3c" onclick="handleResult('LEAST')">LEAST Seeds ⚠️</button>
         `;
     }
 
     function handleResult(result) {
+        document.body.className = "";
+        timerDisplay.style.display = "none";
         addMsg(`I got ${result} seeds.`, 'user');
         
         if (generation === 1) {
-            addMsg("Good work. Everyone survives 1976! If you got the MOST, you had a baby finch! Mark your worksheet.", 'bot');
+            addMsg("Everyone survived! Mark your worksheet. <br><br>Prepare for the next year...", 'bot');
             setTimeout(startGen2, 3000);
         } else if (generation === 2) {
             if (result === 'LEAST') {
-                addMsg("<span class='highlight'>THE DROUGHT WAS TOO HARD:</span> Your finch did not survive. But you 're-spawn' as the offspring of a winner!", 'bot');
-                addMsg("<b>ACTION: Change your tool to a LARGE CLIP now.</b>", 'bot');
+                addMsg("<b>THE DROUGHT:</b> You didn't survive. <b>Change your tool to a LARGE CLIP.</b>", 'bot');
                 beak = "Large Beak";
+                updateStatus("1977 (DROUGHT)");
             } else {
-                addMsg("<b>YOU SURVIVED!</b> Your beak was strong enough to crack the hard seeds.", 'bot');
+                addMsg("<b>SURVIVED!</b> You were strong enough to find food.", 'bot');
             }
-            setTimeout(startGen3, 4000);
+            setTimeout(startGen3, 3000);
         }
     }
 
     function startGen2() {
         generation = 2;
         updateStatus("1977 (DROUGHT)");
-        addMsg("⚠️ <b>1977 - THE DROUGHT:</b> It is very dry. The small seeds are gone. Only <b>LARGE, HARD SEEDS</b> are left.", 'bot');
-        addMsg("<b>ACTION:</b> Try to feed for 20 seconds. Record your seeds for Generation 2!", 'bot');
+        addMsg("⚠️ <b>1977 - THE DROUGHT:</b> 75% of small seeds are gone. Only <b>LARGE, HARD SEEDS</b> left.", 'bot');
+        controls.innerHTML = `<button style="background:#d93025" onclick="startTimer()">START FEEDING (20s)</button>`;
     }
 
     function startGen3() {
         generation = 3;
         updateStatus("1978 (Recovery)");
-        addMsg("✨ <b>1978 - The Recovery:</b> The rain is back! Some small seeds are returning.", 'bot');
-        addMsg("Look at the class. Did the population change? <b>This is Natural Selection!</b>", 'bot');
-        controls.innerHTML = "<b>Class Discussion Time! 📢</b>";
+        addMsg("✨ <b>1978 - Recovery:</b> Rain has returned! The simulation is over.", 'bot');
+        controls.innerHTML = "<b>Check your data tables! 📢</b>";
     }
-
-    controls.innerHTML = `
-        <button onclick="setBeak('Small Beak')">Small Beak</button>
-        <button onclick="setBeak('Medium Beak')">Medium Beak</button>
-        <button onclick="setBeak('Large Beak')">Large Beak</button>
-    `;
 </script>
-
 </body>
 </html>
